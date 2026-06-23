@@ -226,16 +226,18 @@ var sessionManager = new SessionManager(sessionStore);
 
 **Directory Structure:**
 
+```plaintext
 /data/
 ├── models/
-│ └── {ModelId}/
-│ ├── weights.bin # Model weights (GBs)
-│ ├── optimizer.bin # Optimizer state (GBs)
-│ └── manifest.json # Metadata (HyperParams, Tokenizer, Epoch, Loss, Tags)
+│   └── {ModelId}/
+│       ├── weights.bin      # Model weights (GBs)
+│       ├── optimizer.bin    # Optimizer state (GBs)
+│       └── manifest.json    # Metadata (HyperParams, Tokenizer, Epoch, Loss, Tags)
 └── sessions/
-└── {SessionId}/
-├── kv.bin # KV-cache (MBs - 2GB)
-└── meta.json # Metadata (ModelFingerprint, TokenHistory, SamplingConfig, Tags)
+    └── {SessionId}/
+        ├── kv.bin           # KV-cache (MBs - 2GB)
+        └── meta.json        # Metadata (ModelFingerprint, TokenHistory, SamplingConfig, Tags)
+```
 
 
 **Configuration Options:**
