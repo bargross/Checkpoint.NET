@@ -86,10 +86,7 @@ jobs:
         for pkg in ./nupkgs/*.nupkg; do
           if [ -f "$pkg" ]; then
             echo "Pushing $pkg"
-            dotnet nuget push "$pkg" \
-              --api-key ${{ secrets.NUGET_API_KEY }} \
-              --source https://api.nuget.org/v3/index.json \
-              --skip-duplicate
+            dotnet nuget push "$pkg" --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
           else
             echo "No .nupkg files found in ./nupkgs/"
             exit 1
