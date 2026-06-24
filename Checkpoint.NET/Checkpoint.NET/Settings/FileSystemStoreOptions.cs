@@ -1,4 +1,4 @@
-﻿namespace Checkpoint.NET.Stores;
+﻿namespace Checkpoint.NET.Settings;
 
 public class FileSystemStoreOptions
 {

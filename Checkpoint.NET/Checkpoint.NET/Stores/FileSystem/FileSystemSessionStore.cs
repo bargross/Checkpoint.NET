@@ -1,4 +1,5 @@
 ﻿using Checkpoint.NET.Models;
+using Checkpoint.NET.Settings;
 
 namespace Checkpoint.NET.Stores.FileSystem;
 

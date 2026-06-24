@@ -1,209 +1,139 @@
-﻿using System.Text.Json;
+﻿using Checkpoint.NET.Models;
 using Npgsql;
-using Checkpoint.NET.Models;
-using Checkpoint.NET.Queries;
+using NpgsqlTypes;
+using System.Text.Json;
 
 namespace Checkpoint.NET.Stores.Postgres;
 
 public class PostgresModelStore : PostgresStoreBase, IModelStore
 {
-    private static readonly JsonSerializerOptions _jsonOpts = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions _jsonOpts = new() { WriteIndented = false };
 
-    // Option 1: Connection String (Library manages DataSource)
     public PostgresModelStore(string connectionString) : base(connectionString) { }
 
-    // Option 2: Existing DataSource (Caller manages lifetime)
     public PostgresModelStore(NpgsqlDataSource dataSource) : base(dataSource) { }
 
-    // --- Schema ---
-    public async Task EnsureSchemaAsync(CancellationToken ct = default)
+      /// <summary>
+      /// Ensures the schema for the model is created
+      /// </summary>
+      /// <param name="CancellationToken"></param>
+      /// <returns></returns>
+    public async Task EnsureSchemaAsync(CancellationToken CancellationToken = default)
     {
-        var conn = await GetConnectionAsync(ct);
+        var connection = await GetConnectionAsync(CancellationToken);
 
-        await using var cmd = new NpgsqlCommand(PostgresTrainingQueries.EnsureModelSchema, conn);
+        await using var command = new NpgsqlCommand(PostgresTrainingQueries.EnsureModelSchema, connection);
 
-        await cmd.ExecuteNonQueryAsync(ct);
+        await command.ExecuteNonQueryAsync(CancellationToken);
     }
 
-    // --- Save ---
-    public async Task SaveAsync(ModelCheckpoint checkpoint, CancellationToken ct = default)
+    /// <summary>
+    /// Saves a model checkpoint
+    /// </summary>
+    /// <param name="checkpoint"></param>
+    /// <param name="cancellationToken"></param>
+    /// <returns>id for model checkpoint</returns>
+    public async Task SaveAsync(ModelCheckpoint checkpoint, CancellationToken cancellationToken = default)
     {
-        var conn = await GetConnectionAsync(ct);
-        await using var tx = await conn.BeginTransactionAsync(ct);
+        var connection = await GetConnectionAsync(cancellationToken);
 
-        // 1. Upsert metadata (Domain-specific)
-        await using var cmd = new NpgsqlCommand(PostgresTrainingQueries.UpsertModelManifest, conn, tx);
-
-        cmd.Parameters.AddWithValue("@id", checkpoint.ModelId);
-        cmd.Parameters.AddWithValue("@hp", JsonSerializer.Serialize(checkpoint.HyperParams, _jsonOpts));
-        cmd.Parameters.AddWithValue("@tok", JsonSerializer.Serialize(checkpoint.Tokenizer, _jsonOpts));
-        cmd.Parameters.AddWithValue("@epoch", checkpoint.CurrentEpoch);
-        cmd.Parameters.AddWithValue("@loss", checkpoint.LastTrainingLoss);
-        cmd.Parameters.AddWithValue("@now", checkpoint.CreatedAt);
-        cmd.Parameters.AddWithValue("@tags", JsonSerializer.Serialize(checkpoint.Tags, _jsonOpts));
-
-        await cmd.ExecuteNonQueryAsync(ct);
-
-        // 2. Get existing OIDs (Domain-specific)
-        uint oldWeightsOid = 0, oldOptimizerOid = 0;
-        await using var selectCmd = new NpgsqlCommand(PostgresTrainingQueries.SelectModelBlobOids, conn, tx);
-
-        selectCmd.Parameters.AddWithValue("@id", checkpoint.ModelId);
-
-        await using var reader = await selectCmd.ExecuteReaderAsync(ct);
-
-        if (await reader.ReadAsync(ct))
-        {
-            oldWeightsOid = reader.GetFieldValue<uint>(0);
-            oldOptimizerOid = reader.GetFieldValue<uint>(1);
-        }
-        await reader.CloseAsync();
-
-        // 3. Create new Large Objects (Low-level I/O)
-        uint weightsOid = await CreateLargeObjectAsync(conn, tx, ct);
-        uint optimizerOid = await CreateLargeObjectAsync(conn, tx, ct);
-
-        // 4. Write binary data (Low-level I/O)
-        await WriteLargeObjectAsync(conn, tx, weightsOid, checkpoint.WeightsBytes, ct);
-        await WriteLargeObjectAsync(conn, tx, optimizerOid, checkpoint.OptimizerBytes, ct);
-
-        // 5. Delete old OIDs (Low-level I/O)
-        if (oldWeightsOid != 0) await UnlinkLargeObjectAsync(conn, tx, oldWeightsOid, ct);
-        if (oldOptimizerOid != 0) await UnlinkLargeObjectAsync(conn, tx, oldOptimizerOid, ct);
-
-        // 6. Save OID references (Domain-specific)
-        await using var refCmd = new NpgsqlCommand(PostgresTrainingQueries.UpsertModelBlobRefs, conn, tx);
-
-        refCmd.Parameters.AddWithValue("@id", checkpoint.ModelId);
-        refCmd.Parameters.AddWithValue("@wOid", weightsOid);
-        refCmd.Parameters.AddWithValue("@oOid", optimizerOid);
-
-        await refCmd.ExecuteNonQueryAsync(ct);
-
-        await tx.CommitAsync(ct);
-    }
-
-    // --- Large Object Helpers (Use PostgresLargeObjectQueries) ---
-    private static async Task<uint> CreateLargeObjectAsync(NpgsqlConnection conn, NpgsqlTransaction tx, CancellationToken ct)
-    {
-        await using var cmd = new NpgsqlCommand(PostgresLargeObjectQueries.CreateLargeObject, conn, tx);
-
-        var result = await cmd.ExecuteScalarAsync(ct);
-
-        return Convert.ToUInt32(result);
-    }
-
-    private static async Task WriteLargeObjectAsync(NpgsqlConnection conn, NpgsqlTransaction tx, uint oid, byte[] data, CancellationToken ct)
-    {
-        await using var openCmd = new NpgsqlCommand(PostgresLargeObjectQueries.OpenWrite, conn, tx);
-
-        openCmd.Parameters.AddWithValue("@oid", oid);
-
-        var fd = Convert.ToInt32(await openCmd.ExecuteScalarAsync(ct));
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
         try
         {
-            const int chunkSize = 8192;
-            var offset = 0;
-            while (offset < data.Length)
+            await using var upsertCommand = new NpgsqlCommand(PostgresTrainingQueries.UpsertModelManifest, connection, transaction);
+
+            upsertCommand.Parameters.AddWithValue("@id", checkpoint.ModelId);
+            upsertCommand.Parameters.AddWithValue("@hp", JsonSerializer.Serialize(checkpoint.HyperParams, _jsonOpts));
+            upsertCommand.Parameters.AddWithValue("@tok", JsonSerializer.Serialize(checkpoint.Tokenizer, _jsonOpts));
+            upsertCommand.Parameters.AddWithValue("@epoch", checkpoint.CurrentEpoch);
+            upsertCommand.Parameters.AddWithValue("@loss", checkpoint.LastTrainingLoss);
+            upsertCommand.Parameters.AddWithValue("@now", checkpoint.CreatedAt);
+            upsertCommand.Parameters.AddWithValue("@tags", JsonSerializer.Serialize(checkpoint.Tags, _jsonOpts));
+
+            await upsertCommand.ExecuteNonQueryAsync(cancellationToken);
+
+            uint oldWeightOid = 0, oldOptimizerOid = 0;
+            await using var selectCommand = new NpgsqlCommand(PostgresTrainingQueries.SelectModelBlobOids, connection, transaction);
+            selectCommand.Parameters.AddWithValue("@id", checkpoint.ModelId);
+
+            await using var dataReader = await selectCommand.ExecuteReaderAsync(cancellationToken);
+            if (await dataReader.ReadAsync(cancellationToken))
             {
-                var bytesToWrite = Math.Min(chunkSize, data.Length - offset);
-                var chunk = new byte[bytesToWrite];
+                oldWeightOid = dataReader.GetFieldValue<uint>(0);
+                oldOptimizerOid = dataReader.GetFieldValue<uint>(1);
 
-                Array.Copy(data, offset, chunk, 0, bytesToWrite);
-
-                await using var writeCmd = new NpgsqlCommand(PostgresLargeObjectQueries.WriteChunk, conn, tx);
-
-                writeCmd.Parameters.AddWithValue("@fd", fd);
-                writeCmd.Parameters.AddWithValue("@data", chunk);
-
-                await writeCmd.ExecuteScalarAsync(ct);
-
-                offset += bytesToWrite;
+                if (oldWeightOid == 0 || oldOptimizerOid == 0)
+                    throw new InvalidOperationException($"Stored OID is zero: weight={oldWeightOid}, optimizer={oldOptimizerOid}");
             }
-        }
-        finally
-        {
-            await using var closeCmd = new NpgsqlCommand(PostgresLargeObjectQueries.CloseLargeObject, conn, tx);
+            await dataReader.CloseAsync();
 
-            closeCmd.Parameters.AddWithValue("@fd", fd);
+            uint weightOid = await CreateLargeObjectAsync(connection, transaction, cancellationToken);
+            uint optimizerOid = await CreateLargeObjectAsync(connection, transaction, cancellationToken);
 
-            await closeCmd.ExecuteScalarAsync(ct);
-        }
-    }
+            await WriteLargeObjectAsync(connection, transaction, weightOid, checkpoint.WeightsBytes, cancellationToken);
+            await WriteLargeObjectAsync(connection, transaction, optimizerOid, checkpoint.OptimizerBytes, cancellationToken);
 
-    private static async Task UnlinkLargeObjectAsync(NpgsqlConnection conn, NpgsqlTransaction tx, uint oid, CancellationToken ct)
-    {
-        await using var cmd = new NpgsqlCommand(PostgresLargeObjectQueries.UnlinkLargeObject, conn, tx);
+            if (oldWeightOid != 0) await UnlinkLargeObjectAsync(connection, transaction, oldWeightOid, cancellationToken);
+            if (oldOptimizerOid != 0) await UnlinkLargeObjectAsync(connection, transaction, oldOptimizerOid, cancellationToken);
 
-        cmd.Parameters.AddWithValue("@oid", oid);
+            await using var referenceCommand = new NpgsqlCommand(PostgresTrainingQueries.UpsertModelBlobRefs, connection, transaction);
 
-        await cmd.ExecuteScalarAsync(ct);
-    }
+            referenceCommand.Parameters.AddWithValue("@id", checkpoint.ModelId);
+            referenceCommand.Parameters.AddWithValue("@wOid", weightOid).NpgsqlDbType = NpgsqlDbType.Oid;
+            referenceCommand.Parameters.AddWithValue("@oOid", optimizerOid).NpgsqlDbType = NpgsqlDbType.Oid;
 
-    private static async Task<byte[]> ReadLargeObjectAsync(NpgsqlConnection conn, uint oid, CancellationToken ct)
-    {
-        await using var openCmd = new NpgsqlCommand(PostgresLargeObjectQueries.OpenRead, conn);
-        openCmd.Parameters.AddWithValue("@oid", oid);
-        var fd = Convert.ToInt32(await openCmd.ExecuteScalarAsync(ct));
+            await referenceCommand.ExecuteNonQueryAsync(cancellationToken);
 
-        try
-        {
-            await using var sizeCmd = new NpgsqlCommand(PostgresLargeObjectQueries.GetSize, conn);
-            sizeCmd.Parameters.AddWithValue("@fd", fd);
-            long size = Convert.ToInt64(await sizeCmd.ExecuteScalarAsync(ct));
+            await using var verifyCommand = new NpgsqlCommand(
+                "SELECT weights_oid, optimizer_oid FROM model_blobs WHERE model_id = @id",
+                connection,
+                transaction);
 
-            await using var seekCmd = new NpgsqlCommand(PostgresLargeObjectQueries.SeekStart, conn);
+            verifyCommand.Parameters.AddWithValue("@id", checkpoint.ModelId);
 
-            seekCmd.Parameters.AddWithValue("@fd", fd);
+            await using var verifyReader = await verifyCommand.ExecuteReaderAsync(cancellationToken);
 
-            await seekCmd.ExecuteScalarAsync(ct);
-
-            using var ms = new MemoryStream((int)size);
-            const int chunkSize = 8192;
-            var totalRead = 0;
-
-            while (totalRead < size)
+            if (await verifyReader.ReadAsync(cancellationToken))
             {
-                var bytesToRead = (int)Math.Min(chunkSize, size - totalRead);
+                var storedWeightOid = verifyReader.GetFieldValue<uint>(0);
+                var storedOptimizerOid = verifyReader.GetFieldValue<uint>(1);
 
-                await using var readCmd = new NpgsqlCommand(PostgresLargeObjectQueries.ReadChunk, conn);
-                
-                readCmd.Parameters.AddWithValue("@fd", fd);
-                readCmd.Parameters.AddWithValue("@length", bytesToRead);
-                
-                var result = await readCmd.ExecuteScalarAsync(ct);
-
-                if (result is byte[] chunk)
-                {
-                    await ms.WriteAsync(chunk, 0, chunk.Length, ct);
-                    totalRead += chunk.Length;
-                }
-                else break;
+                if (storedWeightOid == 0 || storedOptimizerOid == 0)
+                    throw new InvalidOperationException($"Stored OID is zero after insert: weight={storedWeightOid}, optimizer={storedOptimizerOid}");
             }
+            else
+            {
+                throw new InvalidOperationException("No OID references found after insert.");
+            }
+            await verifyReader.CloseAsync();
 
-            return ms.ToArray();
+            await transaction.CommitAsync(cancellationToken);
         }
-        finally
+        catch
         {
-            await using var closeCmd = new NpgsqlCommand(PostgresLargeObjectQueries.CloseLargeObject, conn);
+            await transaction.RollbackAsync(cancellationToken);
 
-            closeCmd.Parameters.AddWithValue("@fd", fd);
-
-            await closeCmd.ExecuteScalarAsync(ct);
+            throw;
         }
     }
 
-    // --- Load ---
-    public async Task<ModelCheckpoint?> LoadAsync(Guid modelId, CancellationToken ct = default)
+    /// <summary>
+    /// Loads a training model by model id
+    /// </summary>
+    /// <param name="modelId"></param>
+    /// <param name="cancellationToken"></param>
+    /// <returns></returns>
+    public async Task<ModelCheckpoint?> LoadAsync(Guid modelId, CancellationToken cancellationToken = default)
     {
-        var conn = await GetConnectionAsync(ct);
+        var connection = await GetConnectionAsync(cancellationToken);
 
-        await using var cmd = new NpgsqlCommand(PostgresTrainingQueries.SelectFullModelManifest, conn);
-        cmd.Parameters.AddWithValue("@id", modelId);
+        await using var command = new NpgsqlCommand(PostgresTrainingQueries.SelectFullModelManifest, connection);
+        command.Parameters.AddWithValue("@id", modelId);
 
-        await using var reader = await cmd.ExecuteReaderAsync(ct);
-        if (!await reader.ReadAsync(ct)) return null;
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+
+        if (!await reader.ReadAsync(cancellationToken)) return null;
 
         var hyperParams = JsonSerializer.Deserialize<HyperParameters>(reader.GetString(0))!;
         var tokenizer = JsonSerializer.Deserialize<TokenizerData>(reader.GetString(1))!;
@@ -216,8 +146,8 @@ public class PostgresModelStore : PostgresStoreBase, IModelStore
 
         await reader.CloseAsync();
 
-        var weights = await ReadLargeObjectAsync(conn, weightsOid, ct);
-        var optimizer = await ReadLargeObjectAsync(conn, optimizerOid, ct);
+        var weights = await ReadLargeObjectAsync(connection, weightsOid, cancellationToken);
+        var optimizer = await ReadLargeObjectAsync(connection, optimizerOid, cancellationToken);
 
         return new ModelCheckpoint
         {
@@ -233,59 +163,195 @@ public class PostgresModelStore : PostgresStoreBase, IModelStore
         };
     }
 
-    // --- Delete ---
-    public async Task DeleteAsync(Guid modelId, CancellationToken ct = default)
+    /// <summary>
+    /// Deletes a saved training model by training model id (modelId)
+    /// </summary>
+    /// <param name="modelId"></param>
+    /// <param name="cancellationToken"></param>
+    /// <returns></returns>
+    public async Task DeleteAsync(Guid modelId, CancellationToken cancellationToken = default)
     {
-        var conn = await GetConnectionAsync(ct);
-        await using var tx = await conn.BeginTransactionAsync(ct);
+        var connection = await GetConnectionAsync(cancellationToken);
 
-        await using var selectCmd = new NpgsqlCommand(PostgresTrainingQueries.SelectModelBlobOids, conn, tx);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
 
-        selectCmd.Parameters.AddWithValue("@id", modelId);
-
-        await using var reader = await selectCmd.ExecuteReaderAsync(ct);
-        if (await reader.ReadAsync(ct))
+        try
         {
-            uint wOid = reader.GetFieldValue<uint>(0);
-            uint oOid = reader.GetFieldValue<uint>(1);
+            await using var selectCommand = new NpgsqlCommand(PostgresTrainingQueries.SelectModelBlobOids, connection, transaction);
 
-            await reader.CloseAsync();
+            selectCommand.Parameters.AddWithValue("@id", modelId);
 
-            await UnlinkLargeObjectAsync(conn, tx, wOid, ct);
-            await UnlinkLargeObjectAsync(conn, tx, oOid, ct);
+            await using var dataReader = await selectCommand.ExecuteReaderAsync(cancellationToken);
+
+            if (await dataReader.ReadAsync(cancellationToken))
+            {
+                uint weightOid = dataReader.GetFieldValue<uint>(0);
+                uint optimizerOid = dataReader.GetFieldValue<uint>(1);
+                await dataReader.CloseAsync();
+
+                await UnlinkLargeObjectAsync(connection, transaction, weightOid, cancellationToken);
+                await UnlinkLargeObjectAsync(connection, transaction, optimizerOid, cancellationToken);
+            }
+            else await dataReader.CloseAsync();
+
+            await using var deleteCommand = new NpgsqlCommand(PostgresTrainingQueries.DeleteModelManifest, connection, transaction);
+            deleteCommand.Parameters.AddWithValue("@id", modelId);
+            await deleteCommand.ExecuteNonQueryAsync(cancellationToken);
+
+            await transaction.CommitAsync(cancellationToken);
         }
-        else await reader.CloseAsync();
+        catch
+        {
+            await transaction.RollbackAsync(cancellationToken);
 
-        await using var delCmd = new NpgsqlCommand(PostgresTrainingQueries.DeleteModelManifest, conn, tx);
-
-        delCmd.Parameters.AddWithValue("@id", modelId);
-
-        await delCmd.ExecuteNonQueryAsync(ct);
-
-        await tx.CommitAsync(ct);
+            throw;
+        }
     }
 
-    // --- List ---
-    public async Task<List<Guid>> ListAsync(string? tagKey = null, string? tagValue = null, CancellationToken ct = default)
+    /// <summary>
+    /// list all training model ids generated
+    /// </summary>
+    /// <param name="tagKey"></param>
+    /// <param name="tagValue"></param>
+    /// <param name="cancellationToken"></param>
+    /// <returns></returns>
+    public async Task<List<Guid>> ListAsync(string? tagKey = null, string? tagValue = null, CancellationToken cancellationToken = default)
     {
-        var conn = await GetConnectionAsync(ct);
-        var sql = string.IsNullOrEmpty(tagKey) || string.IsNullOrEmpty(tagValue)
-            ? PostgresTrainingQueries.ListAllModelIds
-            : PostgresTrainingQueries.ListModelIdsByTag;
+        var connection = await GetConnectionAsync(cancellationToken);
+        string sqlQuery;
+        NpgsqlCommand command;
 
-        await using var cmd = new NpgsqlCommand(sql, conn);
-        if (!string.IsNullOrEmpty(tagKey) && !string.IsNullOrEmpty(tagValue))
+        if (string.IsNullOrWhiteSpace(tagKey) || string.IsNullOrWhiteSpace(tagValue))
         {
-            cmd.Parameters.AddWithValue("@key", tagKey);
-            cmd.Parameters.AddWithValue("@value", tagValue);
+            sqlQuery = PostgresTrainingQueries.ListAllModelIds;
+            command = new NpgsqlCommand(sqlQuery, connection);
+        }
+        else
+        {
+            var jsonObject = $"{{ \"{tagKey}\": \"{tagValue}\" }}";
+            sqlQuery = "SELECT model_id FROM model_manifests WHERE tags @> @tag::jsonb";
+
+            command = new NpgsqlCommand(sqlQuery, connection);
+            command.Parameters.AddWithValue("@tag", jsonObject);
         }
 
-        await using var reader = await cmd.ExecuteReaderAsync(ct);
-        
-        var list = new List<Guid>();
-        while (await reader.ReadAsync(ct))
-            list.Add(reader.GetGuid(0));
+        await using var dataReader = await command.ExecuteReaderAsync(cancellationToken);
 
-        return list;
+        var modelIds = new List<Guid>();
+        while (await dataReader.ReadAsync(cancellationToken))
+            modelIds.Add(dataReader.GetGuid(0));
+
+        return modelIds;
+    }
+
+    //--------- private methods -----------------------------------
+
+    // --- Large Object Helpers (Use PostgresLargeObjectQueries) ---
+    private static async Task<uint> CreateLargeObjectAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand(PostgresLargeObjectQueries.CreateLargeObject, connection, transaction);
+
+        var result = await command.ExecuteScalarAsync(cancellationToken);
+        var oid = Convert.ToUInt32(result);
+
+        if (oid == 0)
+            throw new InvalidOperationException("Failed to create a new large object: returned OID is 0. Ensure the 'lo' extension is installed.");
+
+        return oid;
+    }
+
+    private static async Task WriteLargeObjectAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        uint objectId,
+        byte[] data,
+        CancellationToken cancellationToken)
+    {
+        await using var openCommand = new NpgsqlCommand(PostgresLargeObjectQueries.OpenWrite, connection, transaction);
+
+        openCommand.Parameters.AddWithValue("@oid", objectId).NpgsqlDbType = NpgsqlDbType.Oid;
+
+        var fileDescriptor = Convert.ToInt32(await openCommand.ExecuteScalarAsync(cancellationToken));
+
+        const int chunkSize = 8192;
+        int offset = 0;
+        while (offset < data.Length)
+        {
+            int bytesToWrite = Math.Min(chunkSize, data.Length - offset);
+            byte[] dataChunk = new byte[bytesToWrite];
+
+            Array.Copy(data, offset, dataChunk, 0, bytesToWrite);
+
+            await using var writeCommand = new NpgsqlCommand(PostgresLargeObjectQueries.WriteChunk, connection, transaction);
+
+            writeCommand.Parameters.AddWithValue("@fd", fileDescriptor).NpgsqlDbType = NpgsqlDbType.Integer;
+            writeCommand.Parameters.AddWithValue("@data", dataChunk).NpgsqlDbType = NpgsqlDbType.Bytea;
+
+            await writeCommand.ExecuteScalarAsync(cancellationToken);
+
+            offset += bytesToWrite;
+        }
+    }
+
+    private static async Task UnlinkLargeObjectAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        uint objectId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand(PostgresLargeObjectQueries.UnlinkLargeObject, connection, transaction);
+
+        command.Parameters.AddWithValue("@oid", objectId).NpgsqlDbType = NpgsqlDbType.Oid;
+
+        await command.ExecuteScalarAsync(cancellationToken);
+    }
+
+    private static async Task<byte[]> ReadLargeObjectAsync(
+        NpgsqlConnection connection,
+        uint objectId,
+        CancellationToken cancellationToken)
+    {
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        await using var openCommand = new NpgsqlCommand(PostgresLargeObjectQueries.OpenRead, connection, transaction);
+        openCommand.Parameters.AddWithValue("@oid", objectId).NpgsqlDbType = NpgsqlDbType.Oid;
+        var fileDescriptor = Convert.ToInt32(await openCommand.ExecuteScalarAsync(cancellationToken));
+
+        await using var sizeCommand = new NpgsqlCommand(PostgresLargeObjectQueries.GetSize, connection, transaction);
+        sizeCommand.Parameters.AddWithValue("@fd", fileDescriptor).NpgsqlDbType = NpgsqlDbType.Integer;
+        var size = Convert.ToInt64(await sizeCommand.ExecuteScalarAsync(cancellationToken));
+
+        await using var seekCommand = new NpgsqlCommand(PostgresLargeObjectQueries.SeekStart, connection, transaction);
+        seekCommand.Parameters.AddWithValue("@fd", fileDescriptor).NpgsqlDbType = NpgsqlDbType.Integer;
+        await seekCommand.ExecuteScalarAsync(cancellationToken);
+
+        using var memoryStream = new MemoryStream((int)size);
+        const int chunkSize = 8192;
+        var totalRead = 0;
+
+        while (totalRead < size)
+        {
+            var bytesToRead = (int)Math.Min(chunkSize, size - totalRead);
+
+            await using var readCommand = new NpgsqlCommand(PostgresLargeObjectQueries.ReadChunk, connection, transaction);
+            readCommand.Parameters.AddWithValue("@fd", fileDescriptor).NpgsqlDbType = NpgsqlDbType.Integer;
+            readCommand.Parameters.AddWithValue("@length", bytesToRead).NpgsqlDbType = NpgsqlDbType.Integer;
+
+            var result = await readCommand.ExecuteScalarAsync(cancellationToken);
+
+            if (result is byte[] dataChunk)
+            {
+                await memoryStream.WriteAsync(dataChunk, 0, dataChunk.Length, cancellationToken);
+                totalRead += dataChunk.Length;
+            }
+            else break;
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+
+        return memoryStream.ToArray();
     }
 }

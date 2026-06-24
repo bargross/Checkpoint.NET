@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using Checkpoint.NET.Settings;
 
 namespace Checkpoint.NET.Stores;
 
@@ -76,6 +77,99 @@ internal static class FileSystemHelper
         await File.WriteAllTextAsync(Path.Combine(dir, metaFileName), json, cancellationToken);
     }
 
+    public static async Task SaveMultipleAsync<TMetadata>(
+        string rootPath,
+        Guid id,
+        Dictionary<string, byte[]> binaryData,
+        TMetadata metadata,
+        FileSystemStoreOptions options,
+        string metaFileName = "manifest.json",
+        CancellationToken cancellationToken = default) where TMetadata : class
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var dir = Path.Combine(rootPath, id.ToString());
+
+        if (options.EnsureDirectoryExists)
+        {
+            Directory.CreateDirectory(dir);
+        }
+        else if (!Directory.Exists(dir))
+        {
+            throw new DirectoryNotFoundException(
+                $"The target directory '{dir}' does not exist and " +
+                $"{nameof(options.EnsureDirectoryExists)} is set to false.");
+        }
+
+        // Validate write access
+        if (!TryValidateWriteAccess(dir, out var error))
+        {
+            if (!string.IsNullOrWhiteSpace(options.FallbackPath))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var fallbackDir = Path.Combine(options.FallbackPath, id.ToString());
+
+                Directory.CreateDirectory(fallbackDir);
+
+                await SaveMultipleAsync(
+                    options.FallbackPath,
+                    id,
+                    binaryData,
+                    metadata,
+                    options,
+                    metaFileName,
+                    cancellationToken);
+
+                return;
+            }
+
+            throw error!;
+        }
+
+        // Write each binary file
+        foreach (var (fileName, data) in binaryData)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            await File.WriteAllBytesAsync(Path.Combine(dir, fileName), data, cancellationToken);
+        }
+
+        // Write manifest
+        var json = JsonSerializer.Serialize(metadata, _jsonOpts);
+        await File.WriteAllTextAsync(Path.Combine(dir, metaFileName), json, cancellationToken);
+    }
+
+    public static async Task<(Dictionary<string, byte[]> Binaries, TMetadata Metadata)> LoadMultipleAsync<TMetadata>(
+        string rootPath,
+        Guid id,
+        string[] binaryFileNames,
+        string metaFileName = "manifest.json",
+        CancellationToken cancellationToken = default) where TMetadata : class, new()
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var dir = Path.Combine(rootPath, id.ToString());
+        var metaPath = Path.Combine(dir, metaFileName);
+
+        if (!File.Exists(metaPath))
+            throw new FileNotFoundException($"Checkpoint {id} not found in {rootPath}");
+
+        var json = await File.ReadAllTextAsync(metaPath, cancellationToken);
+        var metadata = JsonSerializer.Deserialize<TMetadata>(json)!;
+
+        var binaries = new Dictionary<string, byte[]>();
+        foreach (var fileName in binaryFileNames)
+        {
+            var filePath = Path.Combine(dir, fileName);
+            if (!File.Exists(filePath))
+                throw new FileNotFoundException($"Binary file {fileName} missing for checkpoint {id}");
+            binaries[fileName] = await File.ReadAllBytesAsync(filePath, cancellationToken);
+        }
+
+        return (binaries, metadata);
+    }
+
     public static async Task<(byte[] Binary, TMetadata Metadata)> LoadAsync<TMetadata>(
         string rootPath,
         Guid id,
@@ -123,6 +217,9 @@ internal static class FileSystemHelper
     {
         // Fail fast if cancellation is already requested
         cancellationToken.ThrowIfCancellationRequested();
+
+        if (!Directory.Exists(rootPath))
+            return Task.FromResult(new List<Guid>());
 
         var dirs = Directory.GetDirectories(rootPath);
         var guids = new List<Guid>();

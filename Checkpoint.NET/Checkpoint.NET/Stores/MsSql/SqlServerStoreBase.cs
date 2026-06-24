@@ -8,7 +8,7 @@ namespace Checkpoint.NET.Stores.Mysql;
 /// </summary>
 public abstract class SqlServerStoreBase : IAsyncDisposable
 {
-    private readonly string _connectionString;
+    private readonly string _connectionString = string.Empty;
     private SqlConnection? _connection;
     private readonly bool _ownsConnection;
 

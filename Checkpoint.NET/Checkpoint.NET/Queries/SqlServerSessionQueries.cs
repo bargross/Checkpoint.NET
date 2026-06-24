@@ -1,4 +1,4 @@
-﻿namespace Checkpoint.NET.Queries;
+﻿namespace Checkpoint.NET.Stores;
 
 /// <summary>
 /// SQL Server queries specific to the Inference (Session) domain.
@@ -19,11 +19,6 @@ internal static class SqlServerSessionQueries
                 LastUpdated DATETIME2 NOT NULL,
                 Tags NVARCHAR(MAX) NOT NULL            -- JSON
             );
-        END
-
-        IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name='IX_InferenceSessions_Tags' AND object_id = OBJECT_ID('InferenceSessions'))
-        BEGIN
-            CREATE INDEX IX_InferenceSessions_Tags ON InferenceSessions(Tags);
         END";
 
     // --- CRUD ---

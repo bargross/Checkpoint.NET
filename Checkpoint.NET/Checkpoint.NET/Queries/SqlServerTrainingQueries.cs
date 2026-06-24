@@ -1,4 +1,4 @@
-﻿namespace Checkpoint.NET.Queries;
+﻿namespace Checkpoint.NET.Stores;
 
 /// <summary>
 /// SQL Server queries specific to the Training (Model) domain.
@@ -30,11 +30,6 @@ internal static class SqlServerTrainingQueries
                 CONSTRAINT FK_ModelBlobs_ModelManifests FOREIGN KEY (ModelId)
                     REFERENCES ModelManifests(ModelId) ON DELETE CASCADE
             );
-        END
-
-        IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name='IX_ModelManifests_Tags' AND object_id = OBJECT_ID('ModelManifests'))
-        BEGIN
-            CREATE INDEX IX_ModelManifests_Tags ON ModelManifests(Tags);
         END";
 
     // --- Metadata Operations ---

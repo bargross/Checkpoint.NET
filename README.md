@@ -3,13 +3,13 @@
 [![NuGet Version](https://img.shields.io/nuget/v/Checkpoint.NET)](https://www.nuget.org/packages/Checkpoint.NET/)
 [![.NET](https://img.shields.io/badge/.NET-10.0-blue)](https://dotnet.microsoft.com/)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Build Status](https://img.shields.io/github/actions/workflow/status/yourusername/Checkpoint.NET/ci.yml?branch=main)](https://github.com/yourusername/Checkpoint.NET/actions)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/bargross/Checkpoint.NET/ci.yml?branch=main)](https://github.com/bargross/Checkpoint.NET/actions)
 
-**Universal checkpointing for C# machine learning.** Persist full training states (Weights + Optimizer + Hyperparameters) *and* inference session states (KV-cache + Token History) to File System, PostgreSQL, or Cloud Blobs. Manage thousands of models by GUID with zero framework lock-in—built for custom training loops first.
+**Checkpoint.NET** is the ultimate state persistence layer for C# machine learning. Solve GPU training stalls with non-blocking, fire-and-forget background saves while guaranteeing data integrity via automatic memory-safe deep copying. Persist full training checkpoints (Weights + Optimizer + Tokenizer + Hyperparameters) and inference sessions (KV-Cache + Token History) across FileSystem, PostgreSQL, or SQL Server. Zero framework lock-in, fully async, and managed entirely by GUIDs—built for custom training loops first.
 
 ---
 
-## 📦 The Two Halves
+## The Two Halves
 
 | Half | Purpose | Data Stored | Typical Size |
 | :--- | :--- | :--- | :--- |
@@ -20,19 +20,22 @@ Both halves share the same storage backends (FileSystem, PostgreSQL) and the sam
 
 ---
 
-## ✨ Features
+## Features
 
-- ✅ **Framework Agnostic** – Works with your custom math, TorchSharp, ML.NET, or any C# ML library.
-- ✅ **Two Storage Backends** – File System (local disks) or PostgreSQL (with Large Object support for >2GB models).
+- ✅ **Dual Domain Support** – Save training states (weights + optimizer) AND inference states (KV-cache + token history) with separate, dedicated managers.
+- ✅ **Three Storage Backends** – File System (local disks), PostgreSQL (Large Object support for >2GB models), and SQL Server (VARBINARY(MAX) support).
+- ✅ **Background (Fire-and-Forget) Saves** – Opt-in non-blocking saves using a bounded queue. Prevents disk I/O from stalling your GPU training or chat inference loops. Supports custom error callbacks for failure handling.
+- ✅ **Memory-Safe Deep Copy** – When background saves are enabled, byte arrays are automatically cloned to prevent data corruption from in-memory mutations during writes.
 - ✅ **Complete Tokenizer Persistence** – Stores full vocab maps, merge rules, and special token IDs (BOS, EOS, PAD, UNK).
 - ✅ **GUID-based Management** – Save, Load, List, and Delete by unique ID.
 - ✅ **Tagging System** – Filter models and sessions by user-defined key/value tags.
 - ✅ **Permission Handling** – Configurable startup validation and automatic fallback paths for file-system stores.
 - ✅ **Async/Await** – Fully asynchronous and cancellation-token aware.
+- ✅ **Framework Agnostic** – Works with your custom math, TorchSharp, ML.NET, or any C# ML library.
 
 ---
 
-## 📥 Installation
+## Installation
 
 ```bash
 dotnet add package Checkpoint.NET
@@ -44,7 +47,7 @@ Or via Package Manager Console:
 Install-Package Checkpoint.NET
 ```
 
-## 🚀 Quick Start
+## Quick Start
 
 ### 1. Training Checkpoints (Saving Your Model)
 
@@ -55,7 +58,7 @@ using Checkpoint.NET.Manager;
 using Checkpoint.NET.Models;
 using Checkpoint.NET.Stores;
 
-// 1. Choose a storage backend
+// 1. Choose a storage backend (FileSystem, PostgresModelStore, or SqlServerModelStore)
 var store = new FileSystemModelStore("./checkpoints");
 var manager = new CheckpointManager(store);
 
@@ -87,7 +90,7 @@ Buffer.BlockCopy(weights, 0, weightBytes, 0, weightBytes.Length);
 byte[] optimizerStateBytes = new byte[optimizerState.Length * sizeof(float)];
 Buffer.BlockCopy(optimizerState, 0, optimizerStateBytes, 0, optimizerStateBytes.Length);
 
-// 5. Save the checkpoint
+// 5. Save the checkpoint (synchronous – blocks until written)
 Guid modelId = await manager.SaveAsync(
     weights: weightBytes,
     optimizer: optimizerStateBytes,
@@ -100,6 +103,35 @@ Guid modelId = await manager.SaveAsync(
 
 Console.WriteLine($"✅ Saved model with ID: {modelId}");
 ```
+
+**Fire-and-Forget Background Save (Non-Blocking):**
+
+```csharp
+// Enable background saves with a bounded queue
+var options = new BackgroundSaveOptions
+{
+    Enabled = true,
+    QueueCapacity = 5,
+    OnError = ex => Console.WriteLine($"Background save failed: {ex.Message}")
+};
+
+// Wrap in 'await using' to ensure the background thread is cleaned up on exit
+await using var bgManager = new CheckpointManager(options);
+
+// This returns immediately! The actual disk write happens in the background.
+Guid modelId = await bgManager.SaveAsync(
+    weights: weightBytes,
+    optimizer: optimizerStateBytes,
+    hyperParams: hyperParams,
+    tokenizer: tokenizer,
+    epoch: 5,
+    loss: 2.345f
+);
+
+Console.WriteLine($"✅ Model queued for save. ID: {modelId}");
+// Continue training immediately – the save runs in the background.
+```
+
 **Load a saved checkpoint (resume training or serve):**
 
 ```csharp
@@ -116,6 +148,8 @@ Console.WriteLine($"Vocab Size: {loaded.Tokenizer.TokenToId.Count}");
 Console.WriteLine($"BOS token ID: {loaded.Tokenizer.GetSpecialTokenId("bos")}");
 ```
 
+---
+
 ### 2. Inference Sessions (Saving a Conversation)
 
 **Save an active chat session (KV-cache + token history):**
@@ -125,6 +159,7 @@ using Checkpoint.NET.Manager;
 using Checkpoint.NET.Models;
 using Checkpoint.NET.Stores;
 
+// Choose a storage backend (FileSystem, PostgresSessionStore, or SqlServerSessionStore)
 var sessionStore = new FileSystemSessionStore("./sessions");
 var sessionManager = new SessionManager(sessionStore);
 
@@ -138,17 +173,41 @@ new Random().NextBytes(kvCache);
 // Token history (the tokens already processed)
 int[] tokenHistory = new int[] { 1, 2, 3, 100, 200, 300 };
 
-// Save the session
+// Save the session (synchronous – blocks until written)
 await sessionManager.SaveAsync(
     sessionId: chatId,
     kvCacheBytes: kvCache,
     tokenHistory: tokenHistory,
     modelFingerprint: "llama-2-7b-v1",
-    samplingConfig: new SamplingConfig { Temperature = 0.8f, TopP = 0.95f },
+    samplingConfig: new SamplingData { Temperature = 0.8f, TopP = 0.95f },
     tags: new Dictionary<string, string> { { "User", "Alice" }, { "Topic", "History" } }
 );
 
 Console.WriteLine($"✅ Saved session: {chatId}");
+```
+
+**Fire-and-Forget Background Save for Sessions (Non-Blocking):**
+
+```csharp
+var options = new BackgroundSaveOptions
+{
+    Enabled = true,
+    QueueCapacity = 5,
+    OnError = ex => Console.WriteLine($"Background session save failed: {ex.Message}")
+};
+
+await using var bgSessionManager = new SessionManager(options);
+
+// Returns immediately – the session is saved in the background.
+Guid chatId = await bgSessionManager.SaveAsync(
+    sessionId: chatId,
+    kvCacheBytes: kvCache,
+    tokenHistory: tokenHistory,
+    modelFingerprint: "llama-2-7b-v1"
+);
+
+Console.WriteLine($"✅ Session queued for save. ID: {chatId}");
+// Continue the conversation immediately – the save runs in the background.
 ```
 
 **Load a saved session (restore the conversation):**
@@ -172,6 +231,22 @@ if (loadedSession != null)
 }
 ```
 
+---
+
+**💡 Switching Storage Backends:**
+
+Drop in any supported store:
+
+```csharp
+// PostgreSQL
+var pgStore = new PostgresModelStore("Host=localhost;Database=checkpoints");
+var manager = new CheckpointManager(pgStore);
+
+// SQL Server
+var sqlStore = new SqlServerModelStore("Server=localhost;Database=Checkpoints;Integrated Security=True;");
+var manager = new CheckpointManager(sqlStore);
+```
+
 **List all active sessions:**
 
 ```csharp
@@ -191,9 +266,10 @@ var aliceSessions = await sessionManager.ListAsync(tagKey: "User", tagValue: "Al
 await sessionManager.DeleteAsync(chatId);
 ```
 
+**⚠️ Important:** When using background saves (`Enabled = true`), always wrap your manager in an `await using` block or explicitly call `DisposeAsync()` to ensure pending saves complete before your application exits.
 **Important Note:** The KV-cache size is typically between 100 MB and 2 GB, making it far lighter than full model weights. The SessionManager uses the same storage backends as the CheckpointManager—so you can store sessions alongside your models or in a separate location.
 
-## 🗄️ Storage Providers
+## Storage Providers
 
 Checkpoint.NET provides two built-in storage backends for both Training Checkpoints and Inference Sessions:
 
@@ -277,7 +353,7 @@ The PostgreSQL provider stores metadata in structured JSONB columns and binaries
 Instantiate PostgresModelStore with connection string and pass to CheckpointManager
 
 ```csharp
-// Option A: Connection String (Library manages the connection pool)
+// Option A: connection String (Library manages the connection pool)
 var modelStore = new PostgresModelStore("Host=localhost;Database=checkpoints;Username=postgres;Password=pass");
 var checkpointManager = new CheckpointManager(modelStore);
 
@@ -287,7 +363,7 @@ var checkpointManager = new CheckpointManager(modelStore);
 
 Instantiate PostgresSessionStore with connection string and pass to SessionManager
 ```csharp
-// Option A: Connection String
+// Option A: connection String
 var sessionStore = new PostgresSessionStore("Host=localhost;Database=checkpoints;Username=postgres;Password=pass");
 var sessionManager = new SessionManager(sessionStore);
 
@@ -368,3 +444,13 @@ Instantiate AzureBlobModelStore and pass to CheckpointManager
 var azureStore = new AzureBlobModelStore("connection-string", "container-name");
 var manager = new CheckpointManager(azureStore);
 ```
+
+
+## Dependencies & Roadmap
+
+**v1.0.0 (Monolithic):** 
+To keep the initial release simple and fully featured, `Checkpoint.NET` includes built-in providers for FileSystem, PostgreSQL, and SQL Server. 
+If you only use FileSystem, you will still see `Npgsql.dll` and `Microsoft.Data.SqlClient.dll` in your output folder. These are harmless and unused.
+
+**Future v2.0 (Modular):**
+We plan to split the library into separate NuGet packages (`Checkpoint.NET.Core`, `Checkpoint.NET.PostgreSQL`, `Checkpoint.NET.SqlServer`) to remove these optional dependencies. The v1.0.0 API will remain fully compatible with v2.0.

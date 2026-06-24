@@ -1,4 +1,4 @@
-﻿namespace Checkpoint.NET.Queries;
+﻿namespace Checkpoint.NET.Stores;
 
 /// <summary>
 /// PostgreSQL queries specific to the Training (Model) domain.
@@ -8,6 +8,8 @@ internal static class PostgresTrainingQueries
 {
     // --- Schema ---
     public const string EnsureModelSchema = @"
+        CREATE EXTENSION IF NOT EXISTS lo;
+
         CREATE TABLE IF NOT EXISTS model_manifests (
             model_id UUID PRIMARY KEY,
             hyper_params JSONB NOT NULL,
@@ -21,8 +23,7 @@ internal static class PostgresTrainingQueries
             model_id UUID PRIMARY KEY REFERENCES model_manifests(model_id) ON DELETE CASCADE,
             weights_oid OID NOT NULL,
             optimizer_oid OID NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_manifests_tags ON model_manifests USING GIN (tags);";
+        );";
 
     // --- Metadata Operations ---
     public const string UpsertModelManifest = @"
@@ -61,5 +62,5 @@ internal static class PostgresTrainingQueries
 
     // --- Listing ---
     public const string ListAllModelIds = "SELECT model_id FROM model_manifests;";
-    public const string ListModelIdsByTag = "SELECT model_id FROM model_manifests WHERE tags->>@key = @value;";
+    public const string ListModelIdsByTag = "SELECT model_id FROM model_manifests WHERE tags @> jsonb_build_object(@key, @value);";
 }

@@ -1,4 +1,4 @@
-﻿namespace Checkpoint.NET.Queries;
+﻿namespace Checkpoint.NET.Stores;
 
 /// <summary>
 /// PostgreSQL queries specific to the Inference (Session) domain.
@@ -42,5 +42,5 @@ internal static class PostgresSessionQueries
 
     // --- Listing ---
     public const string ListAllSessionIds = "SELECT session_id FROM inference_sessions;";
-    public const string ListSessionIdsByTag = "SELECT session_id FROM inference_sessions WHERE tags->>@key = @value;";
+    public const string ListSessionIdsByTag = "SELECT session_id FROM inference_sessions WHERE tags @> jsonb_build_object(@key, @value);";
 }

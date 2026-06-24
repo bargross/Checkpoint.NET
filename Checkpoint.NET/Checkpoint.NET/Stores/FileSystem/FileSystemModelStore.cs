@@ -1,4 +1,5 @@
 ﻿using Checkpoint.NET.Models;
+using Checkpoint.NET.Settings;
 
 namespace Checkpoint.NET.Stores.FileSystem;
 
@@ -39,8 +40,20 @@ public class FileSystemModelStore : IModelStore
         }
     }
 
+    /// <summary>
+    /// saves model checkpoint for model training session
+    /// </summary>
+    /// <param name="checkpoint"></param>
+    /// <param name="cancellationToken"></param>
+    /// <returns></returns>
     public async Task SaveAsync(ModelCheckpoint checkpoint, CancellationToken cancellationToken = default)
     {
+        var binaryData = new Dictionary<string, byte[]>
+        {
+            ["weights.bin"] = checkpoint.WeightsBytes,
+            ["optimizer.bin"] = checkpoint.OptimizerBytes
+        };
+
         var manifest = new ModelManifest
         {
             HyperParams = checkpoint.HyperParams,
@@ -51,28 +64,37 @@ public class FileSystemModelStore : IModelStore
             Tags = checkpoint.Tags
         };
 
-        await FileSystemHelper.SaveAsync(
+        await FileSystemHelper.SaveMultipleAsync(
             _rootPath,
             checkpoint.ModelId,
-            checkpoint.WeightsBytes,
+            binaryData,
             manifest,
             _options,
-            binaryFileName: "weights.bin",
-            metaFileName: "manifest.json",
             cancellationToken: cancellationToken);
     }
 
+    /// <summary>
+    /// loads a previously saved model
+    /// </summary>
+    /// <param name="modelId"></param>
+    /// <param name="cancellationToken"></param>
+    /// <returns></returns>
     public async Task<ModelCheckpoint?> LoadAsync(Guid modelId, CancellationToken cancellationToken = default)
     {
         try
         {
-            var (weights, manifest) = await FileSystemHelper.LoadAsync<ModelManifest>(
-                _rootPath, modelId, "weights.bin", "manifest.json", cancellationToken);
+            var (binaries, manifest) = await FileSystemHelper.LoadMultipleAsync<ModelManifest>(
+                _rootPath,
+                modelId,
+                new[] { "weights.bin", "optimizer.bin" }, // ✅ Hardcoded constants
+                "manifest.json",
+                cancellationToken);
 
             return new ModelCheckpoint
             {
                 ModelId = modelId,
-                WeightsBytes = weights,
+                WeightsBytes = binaries["weights.bin"],
+                OptimizerBytes = binaries["optimizer.bin"],
                 HyperParams = manifest.HyperParams,
                 Tokenizer = manifest.Tokenizer,
                 CurrentEpoch = manifest.CurrentEpoch,
