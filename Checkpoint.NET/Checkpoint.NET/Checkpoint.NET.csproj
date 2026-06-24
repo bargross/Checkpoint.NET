@@ -1,13 +1,18 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <Title>Checkpoint.NET</Title>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <Authors>Leonardo H. Mengesha</Authors>
+    <PackageTags>checkpointing;llm;machine-learning;sql;local-saves</PackageTags>
+    <RepositoryUrl>https://github.com/bargross/Checkpoint.NET</RepositoryUrl>
     <PackageId>Checkpoint.NET</PackageId>
     <Version>1.0.0</Version>
     <Description>Universal checkpointing for C# ML. Persist training states (Weights + Optimizer) and inference sessions (KV-Cache + Token History) to FileSystem, PostgreSQL, or SQL Server with non-blocking background saves.</Description>
     <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
   </PropertyGroup>
 
   <ItemGroup>

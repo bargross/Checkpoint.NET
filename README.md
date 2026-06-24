@@ -4,6 +4,7 @@
 [![.NET](https://img.shields.io/badge/.NET-10.0-blue)](https://dotnet.microsoft.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/bargross/Checkpoint.NET/dotnet.yml?branch=main)](https://github.com/bargross/Checkpoint.NET/actions)
+[![Changelog](https://img.shields.io/badge/Changelog-view-blue)](./CHANGELOG.md)
 
 ## What is Checkpoint.NET?
 
@@ -305,6 +306,7 @@ await sessionManager.DeleteAsync(chatId);
 ```
 
 **⚠️ Important:** When using background saves (`Enabled = true`), always wrap your manager in an `await using` block or explicitly call `DisposeAsync()` to ensure pending saves complete before your application exits.
+
 **Important Note:** The KV-cache size is typically between 100 MB and 2 GB, making it far lighter than full model weights. The SessionManager uses the same storage backends as the CheckpointManager—so you can store sessions alongside your models or in a separate location.
 
 ## Resuming a Checkpoint
