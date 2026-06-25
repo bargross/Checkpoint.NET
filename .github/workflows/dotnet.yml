@@ -71,7 +71,7 @@ jobs:
 
       - name: Pack NuGet package
         run: |
-          dotnet pack Checkpoint.NET/Checkpoint.NET.csproj \
+          dotnet pack Checkpoint.NET/Checkpoint.NET/Checkpoint.NET.csproj \
             --configuration Release \
             --output ./nupkgs \
             -p:PackageVersion="${GITHUB_REF#refs/tags/v}" \
