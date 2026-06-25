@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/Docs/">
+    <File Path="../CHANGELOG.md" />
+    <File Path="../README.md" />
+  </Folder>
+  <Folder Name="/workflows/">
+    <File Path="../.github/workflows/dotnet.yml" />
+  </Folder>
+  <Project Path="StateCheckpoint.NET.Tests/StateCheckpoint.NET.Tests.csproj" />
+  <Project Path="StateCheckpoint.NET/StateCheckpoint.NET.csproj" />
+</Solution>

@@ -1,14 +1,14 @@
-# Checkpoint.NET
+# StateCheckpoint.NET
 
-[![NuGet Version](https://img.shields.io/nuget/v/Checkpoint.NET)](https://www.nuget.org/packages/Checkpoint.NET/)
+[![NuGet Version](https://img.shields.io/nuget/v/StateCheckpoint.NET)](https://www.nuget.org/packages/StateCheckpoint.NET/)
 [![.NET](https://img.shields.io/badge/.NET-10.0-blue)](https://dotnet.microsoft.com/)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Build Status](https://img.shields.io/github/actions/workflow/status/bargross/Checkpoint.NET/dotnet.yml?branch=main)](https://github.com/bargross/Checkpoint.NET/actions)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/bargross/StateCheckpoint.NET/dotnet.yml?branch=main)](https://github.com/bargross/StateCheckpoint.NET/actions)
 [![Changelog](https://img.shields.io/badge/Changelog-view-blue)](./CHANGELOG.md)
 
-## What is Checkpoint.NET?
+## What is StateCheckpoint.NET?
 
-Training large language models is expensive and time‑consuming. A crash or an I/O stall can waste hours of GPU time. Checkpoint.NET is the ultimate state persistence layer for C# machine learning. It solves these problems by:
+Training large language models is expensive and time‑consuming. A crash or an I/O stall can waste hours of GPU time. StateCheckpoint.NET is the ultimate state persistence layer for C# machine learning. It solves these problems by:
 
 - **Running saves in the background** – Your training loop isn't blocked by disk writes.
 - **Ensuring data integrity** – Deep copying prevents in‑memory mutations from corrupting your checkpoints.
@@ -47,7 +47,7 @@ Both halves share the same storage backends (FileSystem, PostgreSQL) and the sam
 
 ## Core Concepts
 
-Checkpoint.NET is built around two distinct domains, each with its own manager and storage model:
+StateCheckpoint.NET is built around two distinct domains, each with its own manager and storage model:
 
 ### 1. Training Checkpoints (`CheckpointManager`)
 
@@ -77,13 +77,13 @@ Used for saving the state of an active chat or inference session. This includes:
 ## Installation
 
 ```bash
-dotnet add package Checkpoint.NET
+dotnet add package StateCheckpoint.NET
 ```
 
 Or via Package Manager Console:
 
 ```powershell
-Install-Package Checkpoint.NET
+Install-Package StateCheckpoint.NET
 ```
 
 ## Quick Start
@@ -93,9 +93,9 @@ Install-Package Checkpoint.NET
 **Save a model checkpoint (weights + optimizer + tokenizer):**
 
 ```csharp
-using Checkpoint.NET.Manager;
-using Checkpoint.NET.Models;
-using Checkpoint.NET.Stores;
+using StateCheckpoint.NET.Manager;
+using StateCheckpoint.NET.Models;
+using StateCheckpoint.NET.Stores;
 
 // 1. Choose a storage backend (FileSystem, PostgresModelStore, or SqlServerModelStore)
 var store = new FileSystemModelStore("./checkpoints");
@@ -194,9 +194,9 @@ Console.WriteLine($"BOS token ID: {loaded.Tokenizer.GetSpecialTokenId("bos")}");
 **Save an active chat session (KV-cache + token history):**
 
 ```csharp
-using Checkpoint.NET.Manager;
-using Checkpoint.NET.Models;
-using Checkpoint.NET.Stores;
+using StateCheckpoint.NET.Manager;
+using StateCheckpoint.NET.Models;
+using StateCheckpoint.NET.Stores;
 
 // Choose a storage backend (FileSystem, PostgresSessionStore, or SqlServerSessionStore)
 var sessionStore = new FileSystemSessionStore("./sessions");
@@ -316,9 +316,9 @@ When you save a checkpoint, `CheckpointManager.SaveAsync()` returns a `Guid` tha
 ### Example Workflow
 
 ```csharp
-using Checkpoint.NET.Manager;
-using Checkpoint.NET.Models;
-using Checkpoint.NET.Stores;
+using StateCheckpoint.NET.Manager;
+using StateCheckpoint.NET.Models;
+using StateCheckpoint.NET.Stores;
 
 // 1. Load the model ID from persistent storage (e.g., a file)
 Guid modelId = LoadModelIdFromFile("model-id.txt");
@@ -352,7 +352,7 @@ SaveModelIdToFile("model-id.txt", newId);
 
 ## Storage Providers
 
-Checkpoint.NET provides three built‑in storage backends:
+StateCheckpoint.NET provides three built‑in storage backends:
 
 - **FileSystem** – Stores data on local or mounted drives (ideal for development, edge deployments, or single‑server setups).
 - **PostgreSQL** – Stores metadata in JSONB columns and binaries as Large Objects (for Models) or BYTEA (for Sessions).
@@ -511,11 +511,11 @@ var manager = new CheckpointManager(azureStore);
 ## Dependencies & Roadmap
 
 **v1.0.0 (Monolithic):** 
-To keep the initial release simple and fully featured, `Checkpoint.NET` includes built-in providers for FileSystem, PostgreSQL, and SQL Server. 
+To keep the initial release simple and fully featured, `StateCheckpoint.NET` includes built-in providers for FileSystem, PostgreSQL, and SQL Server. 
 If you only use FileSystem, you will still see `Npgsql.dll` and `Microsoft.Data.SqlClient.dll` in your output folder. These are harmless and unused.
 
 **Future v2.0 (Modular):**
-We plan to split the library into separate NuGet packages (`Checkpoint.NET.Core`, `Checkpoint.NET.PostgreSQL`, `Checkpoint.NET.SqlServer`) to remove these optional dependencies. The v1.0.0 API will remain fully compatible with v2.0.
+We plan to split the library into separate NuGet packages (`StateCheckpoint.NET.Core`, `StateCheckpoint.NET.PostgreSQL`, `StateCheckpoint.NET.SqlServer`) to remove these optional dependencies. The v1.0.0 API will remain fully compatible with v2.0.
 
 ## License
 

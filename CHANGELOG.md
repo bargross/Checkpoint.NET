@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.0] - 2025-06-25
 
 ### Added
-- Initial release of Checkpoint.NET.
+- Initial release of StateCheckpoint.NET.
 - Support for saving/loading training checkpoints (weights + optimizer).
 - Support for saving/loading inference sessions (KV-cache + token history).
 - FileSystem, PostgreSQL, and SQL Server storage providers.
