@@ -55,7 +55,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
 
     permissions:
-      id-token: write   # Required to get the OIDC token
+      id-token: write   # Required to get OIDC token
       contents: read
 
     steps:
@@ -71,7 +71,7 @@ jobs:
 
       - name: Pack NuGet package
         run: |
-          dotnet pack Checkpoint.NET/Checkpoint.NET/Checkpoint.NET.csproj \
+          dotnet pack Checkpoint.NET/Checkpoint.NET.csproj \
             --configuration Release \
             --output ./nupkgs \
             -p:PackageVersion="${GITHUB_REF#refs/tags/v}" \
@@ -81,13 +81,11 @@ jobs:
       - name: List nupkg files
         run: ls -la ./nupkgs
 
-      - name: Get OIDC token for NuGet
-        id: get_token
-        run: |
-          # Request an OIDC token for the NuGet audience
-          TOKEN=$(curl -s -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://NuGet" | jq -r '.value')
-          echo "token=$TOKEN" >> $GITHUB_OUTPUT
+      - name: Get OIDC token
+        id: oidc
+        uses: actions/oidc-token@v1
+        with:
+          audience: "api://NuGet"
 
       - name: Push to NuGet.org
         run: |
@@ -95,11 +93,11 @@ jobs:
             if [ -f "$pkg" ]; then
               echo "Pushing $pkg"
               dotnet nuget push "$pkg" \
-                --source https://api.nuget.org/v3/index.json \
-                --api-key ${{ steps.get_token.outputs.token }} \
+                --source "https://api.nuget.org/v3/index.json" \
+                --api-key "${{ steps.oidc.outputs.token }}" \
                 --skip-duplicate
             else
-              echo "No .nupkg files found in ./nupkgs/"
+              echo "No .nupkg files found"
               exit 1
             fi
           done
